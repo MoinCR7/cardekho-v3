@@ -90,9 +90,18 @@ def load_model():
         model = joblib.load('car_price_model.pkl')
         metadata = joblib.load('model_metadata.pkl')
         return model, metadata
-    except FileNotFoundError:
-        st.error("⚠️ Model files not found. Please run train_and_save_model.py first!")
-        st.stop()
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        st.info("Trying pickle backup...")
+        try:
+            import pickle
+            with open('car_price_model_pickle.pkl', 'rb') as f:
+                model = pickle.load(f)
+            metadata = joblib.load('model_metadata.pkl')
+            return model, metadata
+        except Exception as e2:
+            st.error(f"Both loading methods failed: {e2}")
+            st.stop()
 
 model, metadata = load_model()
 

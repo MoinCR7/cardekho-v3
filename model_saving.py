@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import joblib
+import pickle
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, PowerTransformer
 from sklearn.impute import KNNImputer
 from sklearn.compose import ColumnTransformer
@@ -11,6 +12,13 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import mean_squared_error, r2_score
 import warnings
 warnings.filterwarnings('ignore')
+
+# Print versions for debugging
+print(f"Python version: {__import__('sys').version}")
+print(f"Scikit-learn version: {__import__('sklearn').__version__}")
+print(f"Pandas version: {pd.__version__}")
+print(f"NumPy version: {np.__version__}")
+print(f"Joblib version: {joblib.__version__}")
 
 def load_and_preprocess_data(filepath):
     """Load and preprocess the car price dataset"""
@@ -46,7 +54,7 @@ def load_and_preprocess_data(filepath):
 def create_pipeline():
     """Create the full preprocessing and modeling pipeline"""
     
-    # Categorical columns encoding - Updated for newer sklearn
+    # Categorical columns encoding
     cat_cols = ['fuel', 'seller_type', 'transmission', 'owner']
     encoding = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     
@@ -58,10 +66,14 @@ def create_pipeline():
     ])
     
     # Column transformer
-    transformation = ColumnTransformer([
-        ('cats', encoding, cat_cols),
-        ('nums', num_handling, num_cols)
-    ], remainder='drop')  # Explicitly drop other columns
+    transformation = ColumnTransformer(
+        transformers=[
+            ('cats', encoding, cat_cols),
+            ('nums', num_handling, num_cols)
+        ],
+        remainder='drop',
+        verbose_feature_names_out=False
+    )
     
     # Full pipeline with polynomial features
     full_pipeline = Pipeline([
@@ -87,7 +99,7 @@ def train_model(df):
     # Create pipeline
     full_pipeline = create_pipeline()
     
-    # Define parameter grid - Updated for compatibility
+    # Define parameter grid
     param_grid = [
         {
             'poly__degree': [1, 2],
@@ -102,7 +114,7 @@ def train_model(df):
             'poly__degree': [1, 2, 3],
             'reg': [ElasticNet(max_iter=10000)],
             'reg__alpha': [0.01, 0.1, 1.0, 10.0],
-            'reg__l1_ratio': [0.5],  # Added l1_ratio for ElasticNet
+            'reg__l1_ratio': [0.5],
         }
     ]
     
@@ -116,7 +128,7 @@ def train_model(df):
         verbose=2
     )
     
-    print("Training model with GridSearchCV...")
+    print("\nTraining model with GridSearchCV...")
     grid.fit(X_train, y_train)
     
     # Get best model
@@ -135,14 +147,25 @@ def train_model(df):
     print(f"Test R²: {r2_test:.4f}")
     print(f"Test RMSE: {rmse_test:.2f}")
     
-    return best_model, X_train, grid.best_params_
+    return best_model, X_train, X_test, y_test, grid.best_params_
 
-def save_model_and_metadata(model, X_train, best_params, df):
+def save_model_and_metadata(model, X_train, X_test, y_test, best_params, df):
     """Save the trained model and metadata for deployment"""
     
-    # Save the model with protocol 5 for better compatibility
-    joblib.dump(model, 'car_price_model.pkl', compress=3, protocol=5)
-    print("\nModel saved as 'car_price_model.pkl'")
+    # Method 1: Save with joblib (primary method)
+    try:
+        joblib.dump(model, 'car_price_model.pkl', compress=3)
+        print("\n✓ Model saved with joblib as 'car_price_model.pkl'")
+    except Exception as e:
+        print(f"⚠ Joblib save failed: {e}")
+    
+    # Method 2: Also save with pickle as backup
+    try:
+        with open('car_price_model_pickle.pkl', 'wb') as f:
+            pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
+        print("✓ Model also saved with pickle as 'car_price_model_pickle.pkl'")
+    except Exception as e:
+        print(f"⚠ Pickle save failed: {e}")
     
     # Extract unique values for categorical features
     metadata = {
@@ -161,27 +184,56 @@ def save_model_and_metadata(model, X_train, best_params, df):
         },
         'best_params': best_params,
         'sklearn_version': __import__('sklearn').__version__,
-        'python_version': __import__('sys').version
+        'python_version': __import__('sys').version.split()[0],
+        'feature_columns': X_train.columns.tolist()
     }
     
-    # Save metadata with protocol 5
-    joblib.dump(metadata, 'model_metadata.pkl', compress=3, protocol=5)
-    print("Metadata saved as 'model_metadata.pkl'")
+    # Save metadata
+    joblib.dump(metadata, 'model_metadata.pkl', compress=3)
+    print("✓ Metadata saved as 'model_metadata.pkl'")
+    
+    # Test loading immediately to verify compatibility
+    print("\nVerifying saved model can be loaded...")
+    try:
+        test_model = joblib.load('car_price_model.pkl')
+        test_pred = test_model.predict(X_test[:5])
+        print("✓ Model loads and predicts successfully!")
+        print(f"  Sample predictions: {test_pred[:3]}")
+    except Exception as e:
+        print(f"✗ Error loading model: {e}")
+        print("  Try using the pickle version instead")
     
     return metadata
 
 if __name__ == "__main__":
     # Load and preprocess data
-    print("Loading data...")
+    print("=" * 60)
+    print("LOADING DATA")
+    print("=" * 60)
     df = load_and_preprocess_data('car_price.csv')
+    print(f"Data shape: {df.shape}")
     
     # Train model
-    model, X_train, best_params = train_model(df)
+    print("\n" + "=" * 60)
+    print("TRAINING MODEL")
+    print("=" * 60)
+    model, X_train, X_test, y_test, best_params = train_model(df)
     
     # Save model and metadata
-    metadata = save_model_and_metadata(model, X_train, best_params, df)
+    print("\n" + "=" * 60)
+    print("SAVING MODEL")
+    print("=" * 60)
+    metadata = save_model_and_metadata(model, X_train, X_test, y_test, best_params, df)
     
-    print("\n✓ Model training and saving completed successfully!")
-    print("Files created: car_price_model.pkl, model_metadata.pkl")
-    print(f"Sklearn version: {metadata['sklearn_version']}")
-    print(f"Python version: {metadata['python_version'][:6]}")
+    print("\n" + "=" * 60)
+    print("TRAINING COMPLETE")
+    print("=" * 60)
+    print("Files created:")
+    print("  • car_price_model.pkl (joblib)")
+    print("  • car_price_model_pickle.pkl (pickle backup)")
+    print("  • model_metadata.pkl")
+    print(f"\nEnvironment:")
+    print(f"  • Sklearn version: {metadata['sklearn_version']}")
+    print(f"  • Python version: {metadata['python_version']}")
+    print("\nUpload these files to your Streamlit app repository.")
+    print("=" * 60)
