@@ -46,7 +46,7 @@ def load_and_preprocess_data(filepath):
 def create_pipeline():
     """Create the full preprocessing and modeling pipeline"""
     
-    # Categorical columns encoding
+    # Categorical columns encoding - Updated for newer sklearn
     cat_cols = ['fuel', 'seller_type', 'transmission', 'owner']
     encoding = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     
@@ -61,7 +61,7 @@ def create_pipeline():
     transformation = ColumnTransformer([
         ('cats', encoding, cat_cols),
         ('nums', num_handling, num_cols)
-    ])
+    ], remainder='drop')  # Explicitly drop other columns
     
     # Full pipeline with polynomial features
     full_pipeline = Pipeline([
@@ -87,24 +87,22 @@ def train_model(df):
     # Create pipeline
     full_pipeline = create_pipeline()
     
-    # Define parameter grid
+    # Define parameter grid - Updated for compatibility
     param_grid = [
         {
             'poly__degree': [1, 2],
             'reg': [LinearRegression()],
-            'reg__fit_intercept': [True]
         },
         {
             'poly__degree': [1, 2, 3],
             'reg': [Ridge()],
             'reg__alpha': [0.01, 0.1, 1.0, 10.0],
-            'reg__fit_intercept': [True]
         },
         {
             'poly__degree': [1, 2, 3],
             'reg': [ElasticNet(max_iter=10000)],
             'reg__alpha': [0.01, 0.1, 1.0, 10.0],
-            'reg__fit_intercept': [True]
+            'reg__l1_ratio': [0.5],  # Added l1_ratio for ElasticNet
         }
     ]
     
@@ -142,8 +140,8 @@ def train_model(df):
 def save_model_and_metadata(model, X_train, best_params, df):
     """Save the trained model and metadata for deployment"""
     
-    # Save the model
-    joblib.dump(model, 'car_price_model.pkl')
+    # Save the model with protocol 5 for better compatibility
+    joblib.dump(model, 'car_price_model.pkl', compress=3, protocol=5)
     print("\nModel saved as 'car_price_model.pkl'")
     
     # Extract unique values for categorical features
@@ -161,11 +159,13 @@ def save_model_and_metadata(model, X_train, best_params, df):
             'torque': {'min': float(df['torque'].min()), 'max': float(df['torque'].max()), 'mean': float(df['torque'].mean())},
             'seats': {'min': int(df['seats'].min()), 'max': int(df['seats'].max()), 'mean': float(df['seats'].mean())}
         },
-        'best_params': best_params
+        'best_params': best_params,
+        'sklearn_version': __import__('sklearn').__version__,
+        'python_version': __import__('sys').version
     }
     
-    # Save metadata
-    joblib.dump(metadata, 'model_metadata.pkl')
+    # Save metadata with protocol 5
+    joblib.dump(metadata, 'model_metadata.pkl', compress=3, protocol=5)
     print("Metadata saved as 'model_metadata.pkl'")
     
     return metadata
@@ -183,3 +183,5 @@ if __name__ == "__main__":
     
     print("\n✓ Model training and saving completed successfully!")
     print("Files created: car_price_model.pkl, model_metadata.pkl")
+    print(f"Sklearn version: {metadata['sklearn_version']}")
+    print(f"Python version: {metadata['python_version'][:6]}")
